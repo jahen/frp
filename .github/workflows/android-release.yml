@@ -1,0 +1,171 @@
+# 盯官方 fatedier/frp 的最新 Release（GitHub 不能直接订阅别的仓库的 release 事件，所以定时拉取）。
+# 流程与本地一致：
+#   1. dev 合并官方 tag 并 push
+#   2. android-support 合并同一个 tag；有冲突则失败，不 push
+#   3. make -f Makefile.cross-compiles 成功后，才 push android-support、打 tag、发 Release
+# 只上传 release/frp.aar 与 release/frp-sources.jar。
+name: Android release from official frp
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "官方 tag，例如 v0.70.1。留空则用 fatedier/frp 最新 Release"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Sync, build, publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Resolve official tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG}" ]; then
+            TAG="${INPUT_TAG}"
+          else
+            TAG=$(gh api repos/fatedier/frp/releases/latest --jq .tag_name)
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "不是官方 release tag: $TAG"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Official tag: $TAG"
+
+      - name: Sync dev, merge android-support
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin dev android-support
+          git fetch https://github.com/fatedier/frp.git "refs/tags/${TAG}:refs/tags/${TAG}"
+
+          echo "== dev: merge ${TAG} =="
+          git checkout dev
+          git merge --no-edit "$TAG"
+          git push origin HEAD:dev
+
+          if gh release view "${TAG}-android-support" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${TAG}-android-support already exists"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "== android-support: merge ${TAG} =="
+          git checkout android-support
+          if git merge-base --is-ancestor "$TAG" HEAD; then
+            echo "${TAG} already in android-support"
+          else
+            git merge "$TAG" -m "Merge official ${TAG} into android-support"
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        if: steps.merge.outputs.publish == 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Set up Node
+        if: steps.merge.outputs.publish == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Set up Java
+        if: steps.merge.outputs.publish == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Prepare Android SDK and NDK r26d
+        if: steps.merge.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          test -d "$ANDROID_SDK_ROOT" || { echo "ANDROID_SDK_ROOT missing"; exit 1; }
+          test -x "$ANDROID_SDK_ROOT/build-tools/34.0.0/d8" || { echo "build-tools 34.0.0 missing"; exit 1; }
+          test -f "$ANDROID_SDK_ROOT/platforms/android-34/android.jar" || { echo "platform android-34 missing"; exit 1; }
+          NDK_DIR="$ANDROID_SDK_ROOT/ndk/26.3.11579264"
+          if [ ! -d "$NDK_DIR" ]; then
+            echo "Downloading NDK r26d"
+            curl -fsSL -o /tmp/ndk26.zip https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+            rm -rf /tmp/ndk26 && mkdir -p /tmp/ndk26
+            unzip -q /tmp/ndk26.zip -d /tmp/ndk26
+            SRC=$(find /tmp/ndk26 -mindepth 1 -maxdepth 1 -type d | head -1)
+            mkdir -p "$ANDROID_SDK_ROOT/ndk"
+            mv "$SRC" "$NDK_DIR"
+          fi
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Install gomobile
+        if: steps.merge.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260410095206-2cfb76559b7b
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260410095206-2cfb76559b7b
+          gomobile version
+
+      - name: Build
+        if: steps.merge.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          chmod +x make_frp_dex_aar.sh
+          make -f Makefile.cross-compiles
+          test -f release/frp.aar
+          test -f release/frp-sources.jar
+
+      - name: Push android-support, tag, and release
+        if: steps.merge.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git push origin HEAD:android-support
+          if ! git rev-parse -q --verify "refs/tags/${TAG}-android-support" >/dev/null; then
+            git tag -a "${TAG}-android-support" -m "Android support build on official frp ${TAG}"
+            git push origin "${TAG}-android-support"
+          fi
+          cat > /tmp/release-notes.md <<EOF
+          同步至 frp ${TAG}（fatedier/frp tag：${TAG}）。
+
+          构建方式：
+          请参考仓库中的 ANDROID_AAR_BUILD.md，安装 gomobile、Android SDK，执行：
+          make -f Makefile.cross-compiles
+          EOF
+          gh release create "${TAG}-android-support" \
+            ./release/frp.aar \
+            ./release/frp-sources.jar \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${TAG}" \
+            --notes-file /tmp/release-notes.md
