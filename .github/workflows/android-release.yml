@@ -1,7 +1,9 @@
 # 盯官方 fatedier/frp 的最新 Release（GitHub 不能直接订阅别的仓库的 release 事件，所以定时拉取）。
 # 流程与本地一致：
 #   1. dev 合并官方 tag 并 push
-#   2. android-support 合并同一个 tag；有冲突则失败，不 push
+#   2. android-support 合并同一个 tag
+#      go.mod / go.sum 冲突时采用官方依赖和 Go 版本，并保留 golang.org/x/mobile
+#      其它文件冲突则失败，不 push
 #   3. make -f Makefile.cross-compiles 成功后，才 push android-support、打 tag、发 Release
 # 只上传 release/frp.aar 与 release/frp-sources.jar。
 name: Android release from official frp
@@ -18,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  workflows: write
 
 concurrency:
   group: android-release
@@ -84,8 +87,33 @@ jobs:
           git checkout android-support
           if git merge-base --is-ancestor "$TAG" HEAD; then
             echo "${TAG} already in android-support"
-          else
-            git merge "$TAG" -m "Merge official ${TAG} into android-support"
+          elif ! git merge "$TAG" -m "Merge official ${TAG} into android-support"; then
+            bad=0
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              case "$f" in
+                go.mod|go.sum) ;;
+                *) echo "需要人工处理的冲突: $f"; bad=1 ;;
+              esac
+            done < <(git diff --name-only --diff-filter=U)
+            if [ "$bad" -ne 0 ]; then
+              exit 1
+            fi
+            echo "go.mod / go.sum 采用官方版本，并保留 golang.org/x/mobile"
+            git checkout --theirs -- go.mod go.sum
+            if ! grep -q 'golang.org/x/mobile ' go.mod; then
+              ver=$(git show HEAD:go.mod | awk '$1=="golang.org/x/mobile"{print $2; exit}')
+              if [ -z "$ver" ]; then
+                echo "当前分支的 go.mod 里没有 golang.org/x/mobile"
+                exit 1
+              fi
+              awk -v ver="$ver" '
+                { print }
+                $1=="golang.org/x/crypto" { print "\tgolang.org/x/mobile " ver }
+              ' go.mod > go.mod.new
+              mv go.mod.new go.mod
+            fi
+            git add go.mod go.sum
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
@@ -93,7 +121,19 @@ jobs:
         if: steps.merge.outputs.publish == 'true'
         uses: actions/setup-go@v6
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+
+      - name: Finish dependency merge
+        if: steps.merge.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -f .git/MERGE_HEAD ]; then
+            exit 0
+          fi
+          go mod tidy
+          git add go.mod go.sum
+          git commit --no-edit
+          grep -q 'golang.org/x/mobile ' go.mod
 
       - name: Set up Node
         if: steps.merge.outputs.publish == 'true'
