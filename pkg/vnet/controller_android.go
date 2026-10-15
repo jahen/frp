@@ -45,8 +45,10 @@ func (c *Controller) RegisterClientRoute(ctx context.Context, name string, route
 }
 
 // UnregisterClientRoute is a no-op on Android.
-func (c *Controller) UnregisterClientRoute(name string) {
+func (c *Controller) UnregisterClientRoute(name string, conn io.Writer) bool {
 	_ = name
+	_ = conn
+	return false
 }
 
 // StartServerConnReadLoop is a no-op on Android.
