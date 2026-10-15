@@ -11,6 +11,8 @@ LDFLAGS := -s -w
 # 最终带 classes.dex 的 AAR 路径（目录 + 文件名）
 ANDROID_AAR ?= ./release/frp.aar
 ANDROID_JAVAPKG ?= com.android.http
+# gomobile 默认 -androidapi 16。NDK r26 及更新版本最低只支持 21，不指定会被拒绝。
+ANDROID_API ?= 21
 
 # 目录、最终文件名、原始 gomobile 产物文件名
 ANDROID_AAR_DIR := $(dir $(ANDROID_AAR))
@@ -66,6 +68,6 @@ app:
 android-aar:
 	@echo "Build Android raw AAR (gomobile bind)..."
 	@mkdir -p "$(ANDROID_AAR_DIR)"
-	@env CGO_ENABLED=1 GOOS=android gomobile bind -ldflags="$(LDFLAGS) -checklinkname=0" -target=android -javapkg $(ANDROID_JAVAPKG) -o "$(ANDROID_AAR_DIR)/$(ANDROID_AAR_RAW_FILE)" github.com/fatedier/frp/cmd/frp/frps github.com/fatedier/frp/cmd/frp/frpc
+	@env CGO_ENABLED=1 GOOS=android gomobile bind -ldflags="$(LDFLAGS) -checklinkname=0" -target=android -androidapi $(ANDROID_API) -javapkg $(ANDROID_JAVAPKG) -o "$(ANDROID_AAR_DIR)/$(ANDROID_AAR_RAW_FILE)" github.com/fatedier/frp/cmd/frp/frps github.com/fatedier/frp/cmd/frp/frpc
 	@echo "Convert raw AAR to dex AAR ($(ANDROID_AAR_FILE))..."
 	@./make_frp_dex_aar.sh "$(ANDROID_AAR_DIR)" "$(ANDROID_AAR_RAW_FILE)" "$(ANDROID_AAR_FILE)"
