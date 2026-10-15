@@ -20,7 +20,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 concurrency:
   group: android-release
@@ -74,7 +73,15 @@ jobs:
 
           echo "== dev: merge ${TAG} =="
           git checkout dev
-          git merge --no-edit "$TAG"
+          if git merge-base --is-ancestor "$TAG" HEAD; then
+            echo "dev already contains ${TAG}"
+          else
+            git merge --no-ff --no-commit "$TAG"
+            # Actions 自带令牌不能修改 .github/workflows，合并时保留本仓库现有 workflow。
+            git checkout HEAD -- .github/workflows
+            git add -A
+            git commit -m "Merge official ${TAG} into dev"
+          fi
           git push origin HEAD:dev
 
           if gh release view "${TAG}-android-support" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -87,7 +94,11 @@ jobs:
           git checkout android-support
           if git merge-base --is-ancestor "$TAG" HEAD; then
             echo "${TAG} already in android-support"
-          elif ! git merge "$TAG" -m "Merge official ${TAG} into android-support"; then
+          elif git merge --no-ff --no-commit "$TAG"; then
+            git checkout HEAD -- .github/workflows
+            git add -A
+            git commit -m "Merge official ${TAG} into android-support"
+          else
             bad=0
             while IFS= read -r f; do
               [ -z "$f" ] && continue
@@ -113,7 +124,8 @@ jobs:
               ' go.mod > go.mod.new
               mv go.mod.new go.mod
             fi
-            git add go.mod go.sum
+            git checkout HEAD -- .github/workflows
+            git add go.mod go.sum .github/workflows
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
