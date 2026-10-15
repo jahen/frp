@@ -4,7 +4,7 @@
 #   2. android-support 合并同一个 tag
 #      go.mod / go.sum 冲突时采用官方依赖和 Go 版本，并保留 golang.org/x/mobile
 #      其它文件冲突则失败，不 push
-#   3. make -f Makefile.cross-compiles 成功后，才 push android-support、打 tag、发 Release
+#   3. make -f Makefile.cross-compiles web android-aar 成功后，才 push android-support、打 tag、发 Release
 # 只上传 release/frp.aar 与 release/frp-sources.jar。
 name: Android release from official frp
 
@@ -192,7 +192,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x make_frp_dex_aar.sh
-          make -f Makefile.cross-compiles
+          make -f Makefile.cross-compiles web android-aar
           test -f release/frp.aar
           test -f release/frp-sources.jar
 
