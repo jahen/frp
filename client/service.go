@@ -28,7 +28,6 @@ import (
 	"github.com/fatedier/golib/crypto"
 	"github.com/samber/lo"
 
-	assetsfrpc "github.com/fatedier/frp/assets/frpc"
 	"github.com/fatedier/frp/client/proxy"
 	"github.com/fatedier/frp/pkg/auth"
 	"github.com/fatedier/frp/pkg/config"
@@ -193,15 +192,7 @@ func NewService(options ServiceOptions) (*Service, error) {
 	// leaked when an earlier error causes NewService to return.
 	var webServer *httppkg.Server
 	if options.Common.WebServer.Port > 0 {
-		// 优先使用配置的 AssetsDir；否则使用嵌入的 frpc 前端资源。
-		var assetsFS http.FileSystem
-		if options.Common.WebServer.AssetsDir != "" {
-			assetsFS = http.Dir(options.Common.WebServer.AssetsDir)
-		} else {
-			assetsFS = assetsfrpc.FileSystem
-		}
-
-		ws, err := httppkg.NewServer(options.Common.WebServer, assetsFS)
+		ws, err := httppkg.NewServer(options.Common.WebServer)
 		if err != nil {
 			return nil, err
 		}

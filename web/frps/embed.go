@@ -5,12 +5,12 @@ package frps
 import (
 	"embed"
 
-	assetsfrps "github.com/fatedier/frp/assets/frps"
+	"github.com/fatedier/frp/assets"
 )
 
 //go:embed dist
 var EmbedFS embed.FS
 
 func init() {
-	assetsfrps.Register(EmbedFS)
+	assets.Register(EmbedFS)
 }

@@ -24,6 +24,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/fatedier/frp/assets"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 )
@@ -34,19 +35,19 @@ var (
 )
 
 type Server struct {
-	addr     string
-	ln       net.Listener
-	tlsCfg   *tls.Config
+	addr   string
+	ln     net.Listener
+	tlsCfg *tls.Config
 
-	router   *mux.Router
-	hs       *http.Server
+	router *mux.Router
+	hs     *http.Server
 
 	authMiddleware mux.MiddlewareFunc
-
-	assetsFS http.FileSystem
 }
 
-func NewServer(cfg v1.WebServerConfig, assetsFS http.FileSystem) (*Server, error) {
+func NewServer(cfg v1.WebServerConfig) (*Server, error) {
+	assets.Load(cfg.AssetsDir)
+
 	addr := net.JoinHostPort(cfg.Addr, strconv.Itoa(cfg.Port))
 	if addr == ":" {
 		addr = ":http"
@@ -65,11 +66,10 @@ func NewServer(cfg v1.WebServerConfig, assetsFS http.FileSystem) (*Server, error
 		WriteTimeout: defaultWriteTimeout,
 	}
 	s := &Server{
-		addr:     addr,
-		ln:       ln,
-		hs:       hs,
-		router:   router,
-		assetsFS: assetsFS,
+		addr:   addr,
+		ln:     ln,
+		hs:     hs,
+		router: router,
 	}
 	if cfg.PprofEnable {
 		s.registerPprofHandlers()
@@ -116,7 +116,7 @@ type RouterRegisterHelper struct {
 func (s *Server) RouteRegister(register func(helper *RouterRegisterHelper)) {
 	register(&RouterRegisterHelper{
 		Router:         s.router,
-		AssetsFS:       s.assetsFS,
+		AssetsFS:       assets.FileSystem,
 		AuthMiddleware: s.authMiddleware,
 	})
 }

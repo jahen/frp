@@ -3,6 +3,7 @@
 #   1. dev 合并官方 tag 并 push
 #   2. android-support 合并同一个 tag
 #      go.mod / go.sum 冲突时采用官方依赖和 Go 版本，并保留 golang.org/x/mobile
+#      .github/workflows 冲突时保留本仓库文件（令牌不能改 workflow）
 #      其它文件冲突则失败，不 push
 #   3. make -f Makefile.cross-compiles web android-aar 成功后，才 push android-support、打 tag、发 Release
 # 只上传 release/frp.aar 与 release/frp-sources.jar。
@@ -76,7 +77,19 @@ jobs:
           if git merge-base --is-ancestor "$TAG" HEAD; then
             echo "dev already contains ${TAG}"
           else
-            git merge --no-ff --no-commit "$TAG"
+            if ! git merge --no-ff --no-commit "$TAG"; then
+              bad=0
+              while IFS= read -r f; do
+                [ -z "$f" ] && continue
+                case "$f" in
+                  .github/workflows/*) git checkout HEAD -- "$f" ;;
+                  *) echo "dev 需要人工处理的冲突: $f"; bad=1 ;;
+                esac
+              done < <(git diff --name-only --diff-filter=U)
+              if [ "$bad" -ne 0 ]; then
+                exit 1
+              fi
+            fi
             # Actions 自带令牌不能修改 .github/workflows，合并时保留本仓库现有 workflow。
             git checkout HEAD -- .github/workflows
             git add -A
@@ -103,7 +116,7 @@ jobs:
             while IFS= read -r f; do
               [ -z "$f" ] && continue
               case "$f" in
-                go.mod|go.sum) ;;
+                go.mod|go.sum|.github/workflows/*) ;;
                 *) echo "需要人工处理的冲突: $f"; bad=1 ;;
               esac
             done < <(git diff --name-only --diff-filter=U)
