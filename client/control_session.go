@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"runtime"
 	"time"
 
@@ -104,11 +103,10 @@ func (d *controlSessionDialer) Dial(previousRunID string) (*SessionContext, erro
 }
 
 func (d *controlSessionDialer) buildLoginMsg(previousRunID string) (*msg.Login, error) {
-	hostname, _ := os.Hostname()
 	loginMsg := &msg.Login{
 		Arch:      runtime.GOARCH,
 		Os:        runtime.GOOS,
-		Hostname:  hostname,
+		Hostname:  machineHostname(),
 		PoolCount: d.common.Transport.PoolCount,
 		User:      d.common.User,
 		ClientID:  d.common.ClientID,
